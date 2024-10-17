@@ -1,46 +1,34 @@
-Bloom filters
--------------
-[![Test](https://github.com/bits-and-blooms/bloom/actions/workflows/test.yml/badge.svg)](https://github.com/bits-and-blooms/bloom/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/bits-and-blooms/bloom)](https://goreportcard.com/report/github.com/bits-and-blooms/bloom)
-[![Go Reference](https://pkg.go.dev/badge/github.com/bits-and-blooms/bloom.svg)](https://pkg.go.dev/github.com/bits-and-blooms/bloom/v3)
+## 布隆过滤器
 
-This library is used by popular systems such as [Milvus](https://github.com/milvus-io/milvus) and [beego](https://github.com/beego/Beego).
+- Godoc documentation:  https://pkg.go.dev/github.com/bits-and-blooms/bloom/v3
 
-A Bloom filter is a concise/compressed representation of a set, where the main
-requirement is to make membership queries; _i.e._, whether an item is a
-member of a set. A Bloom filter will always correctly report the presence
-of an element in the set when the element is indeed present. A Bloom filter 
-can use much less storage than the original set, but it allows for some 'false positives':
-it may sometimes report that an element is in the set whereas it is not.
+> This library is used by popular systems such as [Milvus](https://github.com/milvus-io/milvus) and [beego](https://github.com/beego/Beego).
 
-When you construct, you need to know how many elements you have (the desired capacity), and what is the desired false positive rate you are willing to tolerate. A common false-positive rate is 1%. The
-lower the false-positive rate, the more memory you are going to require. Similarly, the higher the
-capacity, the more memory you will use.
-You may construct the Bloom filter capable of receiving 1 million elements with a false-positive
-rate of 1% in the following manner. 
+布隆过滤器是一种集合的简洁/压缩表示形式，其主要需求是进行成员查询，即判断一个项是否是集合的成员。**当布隆过滤报告某元素在集合中不存在时，那么它一定不存在；报告某元素存在时，允许出现“假阳性”，有时会错误地包裹某个元素在集合中，而实际上它不存在**，因为它节省了比原始集合少得多的存储空间。
+
+> 理解“假阳性”：在的肯定在，不在的可能在
+
+在构建布隆过滤器时，你需要知道有多少元素（所需的 **容量**）以及你愿意容忍的 **假阳性率** 是多少。常见的假阳性率是 **1%**。**假阳性率越低，所需的内存就越多**。同样，**容量越大，使用的内存也越多**。你可以通过以下方式构建一个能够接收 **100万** 个元素且假阳性率为 **1%** 的布隆过滤器：
 
 ```Go
     filter := bloom.NewWithEstimates(1000000, 0.01) 
 ```
 
-You should call `NewWithEstimates` conservatively: if you specify a number of elements that it is
-too small, the false-positive bound might be exceeded. A Bloom filter is not a dynamic data structure:
-you must know ahead of time what your desired capacity is.
+应该谨慎地调用 `NewWithEstimates` 方法：如果你指定的元素数量过小，可能会超过假阳性率的限制。布隆过滤器 **不是一种动态数据结构**：你必须事先知道所需的容量。
 
-Our implementation accepts keys for setting and testing as `[]byte`. Thus, to
-add a string item, `"Love"`:
+该项目中的实现接受用于设置和测试的键为 `[]byte` 类型。因此，要添加一个字符串项，例如 `"Love"`，可以这样做：
 
 ```Go
     filter.Add([]byte("Love"))
 ```
 
-Similarly, to test if `"Love"` is in bloom:
+同样地，如果检查 `"Love"` 是否在布隆过滤器中：
 
 ```Go
     if filter.Test([]byte("Love"))
 ```
 
-For numerical data, we recommend that you look into the encoding/binary library. But, for example, to add a `uint32` to the filter:
+对于数值数据，我们建议你查看 `encoding/binary` 库。但是，例如，要向过滤器中添加一个 `uint32`：
 
 ```Go
     i := uint32(100)
@@ -49,34 +37,22 @@ For numerical data, we recommend that you look into the encoding/binary library.
     filter.Add(n1)
 ```
 
-Godoc documentation:  https://pkg.go.dev/github.com/bits-and-blooms/bloom/v3 
+### 验证假阳性率
 
-
-## Installation
-
-```bash
-go get -u github.com/bits-and-blooms/bloom/v3
-```
-
-## Verifying the False Positive Rate
-
-
-Sometimes, the actual false positive rate may differ (slightly) from the
-theoretical false positive rate. We have a function to estimate the false positive rate of a
-Bloom filter with _m_ bits and _k_ hashing functions for a set of size _n_:
+有时，实际的假阳性率可能与理论假阳性率略有不同。我们有一个函数可以估算具有 `_m_` 位和 `_k_` 个哈希函数的布隆过滤器在大小为 `_n_` 的集合中的假阳性率：
 
 ```Go
     if bloom.EstimateFalsePositiveRate(20*n, 5, n) > 0.001 ...
 ```
 
-You can use it to validate the computed m, k parameters:
+你可以使用它来验证计算得到的 `m` 和 `k` 参数：
 
 ```Go
     m, k := bloom.EstimateParameters(n, fp)
     ActualfpRate := bloom.EstimateFalsePositiveRate(m, k, n)
 ```
 
-or
+或者：
 
 ```Go
     f := bloom.NewWithEstimates(n, fp)
@@ -88,10 +64,11 @@ You would expect `ActualfpRate` to be close to the desired false-positive rate `
 The `EstimateFalsePositiveRate` function creates a temporary Bloom filter. It is
 also relatively expensive and only meant for validation.
 
-## Serialization
+在这些情况下，你可以期望 `ActualfpRate` 接近期望的假阳性率 `fp`。`EstimateFalsePositiveRate` 函数会创建一个临时的布隆过滤器。它的开销相对较大，只用于验证。
 
-You can read and write the Bloom filters as follows:
+### 序列化
 
+可以以如下方式向布隆过滤器中读写：
 
 ```Go
 	f := New(1000, 4)
@@ -110,57 +87,28 @@ You can read and write the Bloom filters as follows:
 	}
 ```
 
-*Performance tip*: 
-When reading and writing to a file or a network connection, you may get better performance by 
-wrapping your streams with `bufio` instances.
+> 性能提示：在读取和写入文件或网络连接时，通过使用 `bufio` 实例来包装你的流，可能会获得更好的性能。
 
-E.g., 
+Eg: 
+
 ```Go
 	f, err := os.Create("myfile")
 	w := bufio.NewWriter(f)
 ```
+
 ```Go
 	f, err := os.Open("myfile")
 	r := bufio.NewReader(f)
 ```
 
-## Contributing
+### Design
 
-If you wish to contribute to this project, please branch and issue a pull request against master ("[GitHub Flow](https://guides.github.com/introduction/flow/)")
+布隆过滤器有两个参数：`_m_`，用于存储的位数，以及 `_k_`，集合元素的哈希函数数量。（实际的哈希函数也很重要，但这不是该实现的参数）。布隆过滤器由一个 [BitSet](https://github.com/bits-and-blooms/bitset) 支持；通过在每个哈希函数值（取模 `_m_`）的位置设置比特来表示一个键。集合成员资格通过“测试”每个哈希函数值（取模 `_m_`）的位置的比特是否被设置来完成。如果都被设置，则说明该项在集合中。如果该项确实在集合中，布隆过滤器永远不会失败（真正的阳性率为 1.0）；但它容易产生假阳性，技巧在于正确选择 `_k_` 和 `_m_`。
 
-This project includes a Makefile that allows you to test and build the project with simple commands.
-To see all available options:
-```bash
-make help
-```
+在这个实现中，使用的哈希函数是 [murmurhash](github.com/twmb/murmur3)，一种非加密的哈希函数。
 
-## Running all tests
-
-Before committing the code, please check if it passes all tests using (note: this will install some dependencies):
-```bash
-make deps
-make qa
-```
-
-## Design
-
-A Bloom filter has two parameters: _m_, the number of bits used in storage, and _k_, the number of hashing functions on elements of the set. (The actual hashing functions are important, too, but this is not a parameter for this implementation). A Bloom filter is backed by a [BitSet](https://github.com/bits-and-blooms/bitset); a key is represented in the filter by setting the bits at each value of the  hashing functions (modulo _m_). Set membership is done by _testing_ whether the bits at each value of the hashing functions (again, modulo _m_) are set. If so, the item is in the set. If the item is actually in the set, a Bloom filter will never fail (the true positive rate is 1.0); but it is susceptible to false positives. The art is to choose _k_ and _m_ correctly.
-
-In this implementation, the hashing functions used is [murmurhash](github.com/twmb/murmur3), a non-cryptographic hashing function.
-
-
-Given the particular hashing scheme, it's best to be empirical about this. Note
-that estimating the FP rate will clear the Bloom filter.
-
-
-
+鉴于特定的哈希方案，最好是通过经验来确定这一点。请注意，估计假阳性率会清空布隆过滤器。
 
 ### Goroutine safety
 
-In general, it not safe to access
-the same filter using different goroutines--they are
-unsynchronized for performance. Should you want to access
-a filter from more than one goroutine, you should
-provide synchronization. Typically this is done by using channels (in Go style; so there is only ever one owner),
-or by using `sync.Mutex` to serialize operations. Exceptionally, you may access the same filter from different
-goroutines if you never modify the content of the filter.
+一般来说，使用不同的协程访问同一个过滤器是不安全的。它们为性能考虑而未进行同步。如果你想从多个协程访问一个过滤器，你应该提供同步机制。通常，这可以通过使用通道（符合 Go 风格；因此始终只有一个拥有者），或者通过使用 `sync.Mutex` 来序列化操作来完成。例外情况是，如果你从不修改过滤器的内容，那么可以从不同的协程访问同一个过滤器。

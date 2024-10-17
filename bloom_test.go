@@ -1,68 +1,67 @@
 package bloom
 
 import (
-	"fmt"
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
 	"encoding/json"
+	"fmt"
 	"math"
+	"runtime"
+	"sync"
 	"testing"
 
 	"github.com/bits-and-blooms/bitset"
 )
 
-// This implementation of Bloom filters is _not_
-// safe for concurrent use. Uncomment the following
-// method and run go test -race
-//
-// func TestConcurrent(t *testing.T) {
-// 	gmp := runtime.GOMAXPROCS(2)
-// 	defer runtime.GOMAXPROCS(gmp)
-//
-// 	f := New(1000, 4)
-// 	n1 := []byte("Bess")
-// 	n2 := []byte("Jane")
-// 	f.Add(n1)
-// 	f.Add(n2)
-//
-// 	var wg sync.WaitGroup
-// 	const try = 1000
-// 	var err1, err2 error
-//
-// 	wg.Add(1)
-// 	go func() {
-// 		for i := 0; i < try; i++ {
-// 			n1b := f.Test(n1)
-// 			if !n1b {
-// 				err1 = fmt.Errorf("%v should be in", n1)
-// 				break
-// 			}
-// 		}
-// 		wg.Done()
-// 	}()
-//
-// 	wg.Add(1)
-// 	go func() {
-// 		for i := 0; i < try; i++ {
-// 			n2b := f.Test(n2)
-// 			if !n2b {
-// 				err2 = fmt.Errorf("%v should be in", n2)
-// 				break
-// 			}
-// 		}
-// 		wg.Done()
-// 	}()
-//
-// 	wg.Wait()
-//
-// 	if err1 != nil {
-// 		t.Fatal(err1)
-// 	}
-// 	if err2 != nil {
-// 		t.Fatal(err2)
-// 	}
-// }
+// 并发不安全单测验证
+func TestConcurrent(t *testing.T) {
+	gmp := runtime.GOMAXPROCS(2)
+	defer runtime.GOMAXPROCS(gmp)
+
+	f := New(1000, 4)
+	n1 := []byte("Bess")
+	n2 := []byte("Jane")
+	f.Add(n1)
+	f.Add(n2)
+
+	var wg sync.WaitGroup
+	const try = 1000
+	var err1, err2 error
+
+	wg.Add(1)
+	go func() {
+		for i := 0; i < try; i++ {
+			n1b := f.Test(n1)
+			if !n1b {
+				err1 = fmt.Errorf("%v should be in", n1)
+				break
+			}
+		}
+		wg.Done()
+	}()
+
+	wg.Add(1)
+	go func() {
+		for i := 0; i < try; i++ {
+			n2b := f.Test(n2)
+			if !n2b {
+				err2 = fmt.Errorf("%v should be in", n2)
+				break
+			}
+		}
+		wg.Done()
+	}()
+
+	wg.Wait()
+
+	if err1 != nil {
+		t.Fatal(err1)
+	}
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+}
 
 func TestBasic(t *testing.T) {
 	f := New(1000, 4)
@@ -174,14 +173,6 @@ func TestString(t *testing.T) {
 
 }
 
-func testEstimated(n uint, maxFp float64, t *testing.T) {
-	m, k := EstimateParameters(n, maxFp)
-	fpRate := EstimateFalsePositiveRate(m, k, n)
-	if fpRate > 1.5*maxFp {
-		t.Errorf("False positive rate too high: n: %v; m: %v; k: %v; maxFp: %f; fpRate: %f, fpRate/maxFp: %f", n, m, k, maxFp, fpRate, fpRate/maxFp)
-	}
-}
-
 func TestEstimated1000_0001(t *testing.T)   { testEstimated(1000, 0.000100, t) }
 func TestEstimated10000_0001(t *testing.T)  { testEstimated(10000, 0.000100, t) }
 func TestEstimated100000_0001(t *testing.T) { testEstimated(100000, 0.000100, t) }
@@ -194,11 +185,12 @@ func TestEstimated1000_01(t *testing.T)   { testEstimated(1000, 0.010000, t) }
 func TestEstimated10000_01(t *testing.T)  { testEstimated(10000, 0.010000, t) }
 func TestEstimated100000_01(t *testing.T) { testEstimated(100000, 0.010000, t) }
 
-func min(a, b uint) uint {
-	if a < b {
-		return a
+func testEstimated(n uint, maxFp float64, t *testing.T) {
+	m, k := EstimateParameters(n, maxFp)
+	fpRate := EstimateFalsePositiveRate(m, k, n)
+	if fpRate > 1.5*maxFp {
+		t.Errorf("False positive rate too high: n: %v; m: %v; k: %v; maxFp: %f; fpRate: %f, fpRate/maxFp: %f", n, m, k, maxFp, fpRate, fpRate/maxFp)
 	}
-	return b
 }
 
 // The following function courtesy of Nick @turgon
@@ -244,7 +236,13 @@ func chiTestBloom(m, k, rounds uint, elements [][]byte) (succeeds bool) {
 
 	succeeds = table[df-1] > chiStatistic
 	return
+}
 
+func min(a, b uint) uint {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func TestLocation(t *testing.T) {
@@ -263,7 +261,7 @@ func TestLocation(t *testing.T) {
 		ctrlist[1] = uint8(x >> 8)
 		ctrlist[2] = uint8(x >> 16)
 		ctrlist[3] = uint8(x >> 24)
-		data := []byte(ctrlist)
+		data := ctrlist
 		elements[x] = data
 	}
 
@@ -315,9 +313,8 @@ func TestMarshalUnmarshalJSON(t *testing.T) {
 	}
 }
 
-
 func TestMarshalUnmarshalJSONValue(t *testing.T) {
-	f:= BloomFilter{1000, 4, bitset.New(1000)}
+	f := BloomFilter{1000, 4, bitset.New(1000)}
 	data, err := json.Marshal(f)
 	if err != nil {
 		t.Fatal(err.Error())
