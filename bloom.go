@@ -23,6 +23,21 @@ type BloomFilter struct {
 	b *bitset.BitSet
 }
 
+// NewWithEstimates 创建布隆过滤器，根据容量和假阳率估算（estimate）位数和要Hash的次数
+func NewWithEstimates(n uint, fp float64) *BloomFilter {
+	m, k := EstimateParameters(n, fp)
+	return New(m, k)
+}
+
+// EstimateParameters 根据容量和假阳率估算 位数和Hash次数
+func EstimateParameters(n uint, p float64) (m uint, k uint) {
+	// 位数 = (p 的对数的相反数 * 容量 / 2 的对数的平方)的最接近的整数
+	m = uint(math.Ceil(-1 * float64(n) * math.Log(p) / math.Pow(math.Log(2), 2)))
+	// hash次数 = (2 的对数 * 位数 / 容量) 最接近的整数
+	k = uint(math.Ceil(math.Log(2) * float64(m) / float64(n)))
+	return
+}
+
 func New(m uint, k uint) *BloomFilter {
 	return &BloomFilter{max(1, m), max(1, k), bitset.New(m)}
 }
@@ -32,6 +47,49 @@ func max(x, y uint) uint {
 		return x
 	}
 	return y
+}
+
+// Add 添加新的元素到布隆过滤器中，支持链式编程
+func (f *BloomFilter) Add(data []byte) *BloomFilter {
+	// 添加验证容量大小的逻辑，如果超过了提示 warn 信息
+	// four unit64
+	h := baseHashes(data)
+	for i := uint(0); i < f.k; i++ {
+		// 调用 bitset.BitSet 的 `Set` 方法，将计算出的位置添加到布隆过滤器中
+		f.b.Set(f.location(h, i))
+	}
+	return f
+}
+
+// Test 检查某元素是否在布隆过滤器中
+func (f *BloomFilter) Test(data []byte) bool {
+	h := baseHashes(data)
+	for i := uint(0); i < f.k; i++ {
+		if !f.b.Test(f.location(h, i)) {
+			return false
+		}
+	}
+	return true
+}
+
+// baseHashes 计算元素的四个哈希值，用于 k 次哈希计算
+func baseHashes(data []byte) [4]uint64 {
+	var d digest128 // murmur hashing
+	hash1, hash2, hash3, hash4 := d.sum256(data)
+	return [4]uint64{
+		hash1, hash2, hash3, hash4,
+	}
+}
+
+// 将第 i 个哈希位置映射到布隆过滤器的位数组中
+func (f *BloomFilter) location(h [4]uint64, i uint) uint {
+	return uint(location(h, i) % uint64(f.m))
+}
+
+// 计算第 i 个哈希值
+func location(h [4]uint64, i uint) uint64 {
+	ii := uint64(i)
+	return h[ii%2] + ii*h[2+(((ii+(ii%2))%4)/2)]
 }
 
 // From creates a new Bloom filter with len(_data_) * 64 bits and _k_ hashing
@@ -47,41 +105,6 @@ func FromWithM(data []uint64, m, k uint) *BloomFilter {
 	return &BloomFilter{m, k, bitset.From(data)}
 }
 
-// baseHashes returns the four hash values of data that are used to create k hashes
-func baseHashes(data []byte) [4]uint64 {
-	var d digest128 // murmur hashing
-	hash1, hash2, hash3, hash4 := d.sum256(data)
-	return [4]uint64{
-		hash1, hash2, hash3, hash4,
-	}
-}
-
-// 将第 i 个哈希位置映射到布隆过滤器的位数组中
-func (f *BloomFilter) location(h [4]uint64, i uint) uint {
-	return uint(location(h, i) % uint64(f.m))
-}
-
-// 计算第 i 个哈希位置
-func location(h [4]uint64, i uint) uint64 {
-	ii := uint64(i)
-	return h[ii%2] + ii*h[2+(((ii+(ii%2))%4)/2)]
-}
-
-// 根据容量和假阳率估算（estimate）创建布隆过滤器
-func NewWithEstimates(n uint, fp float64) *BloomFilter {
-	m, k := EstimateParameters(n, fp)
-	return New(m, k)
-}
-
-// 根据容量和假阳率估算 位数和Hash次数
-func EstimateParameters(n uint, p float64) (m uint, k uint) {
-	// 位数 = (p 的对数的相反数 * 容量 / 2 的对数的平方)的最接近的整数
-	m = uint(math.Ceil(-1 * float64(n) * math.Log(p) / math.Pow(math.Log(2), 2)))
-	// hash次数 = (2 的对数 * 位数 / 容量) 最接近的整数
-	k = uint(math.Ceil(math.Log(2) * float64(m) / float64(n)))
-	return
-}
-
 // Cap returns the capacity, _m_, of a Bloom filter
 func (f *BloomFilter) Cap() uint {
 	return f.m
@@ -95,17 +118,6 @@ func (f *BloomFilter) K() uint {
 // BitSet returns the underlying bitset for this filter.
 func (f *BloomFilter) BitSet() *bitset.BitSet {
 	return f.b
-}
-
-// Add data to the Bloom Filter. Returns the filter (allows chaining)
-func (f *BloomFilter) Add(data []byte) *BloomFilter {
-	// four unit64
-	h := baseHashes(data)
-	for i := uint(0); i < f.k; i++ {
-		// 调用 bitset.BitSet 的 `Set` 方法，将计算出的位置添加到布隆过滤器中
-		f.b.Set(f.location(h, i))
-	}
-	return f
 }
 
 // Merge the data from two Bloom Filters.
@@ -133,19 +145,6 @@ func (f *BloomFilter) Copy() *BloomFilter {
 // AddString to the Bloom Filter. Returns the filter (allows chaining)
 func (f *BloomFilter) AddString(data string) *BloomFilter {
 	return f.Add([]byte(data))
-}
-
-// Test returns true if the data is in the BloomFilter, false otherwise.
-// If true, the result might be a false positive. If false, the data
-// is definitely not in the set.
-func (f *BloomFilter) Test(data []byte) bool {
-	h := baseHashes(data)
-	for i := uint(0); i < f.k; i++ {
-		if !f.b.Test(f.location(h, i)) {
-			return false
-		}
-	}
-	return true
 }
 
 // TestString returns true if the string is in the BloomFilter, false otherwise.
